@@ -1,43 +1,57 @@
-from flask import Flask, request
+from flask import Flask, request, jsonify
+import logging
 from pybit.unified_trading import HTTP
 
 app = Flask(__name__)
 
-# 🔑 API-ключи от Bybit Testnet
+# Настройка логирования: INFO и выше, формат с датой и временем
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
+logger = logging.getLogger("BotServer")
+
+# API ключи Bybit Testnet
 api_key = "PjR6GAcSpsbLlUvqBt"
 api_secret = "LTZQMggh6WDJQK2vqs9hqd8vHsQVX7xcK49g"
 
-# 📡 Сессия подключения к Testnet
-session = HTTP(
-    testnet=True,
-    api_key=api_key,
-    api_secret=api_secret,
-)
+# Создаем сессию с Bybit Testnet
+session = HTTP(testnet=True, api_key=api_key, api_secret=api_secret)
 
-# ⚙️ Настройки торговли
 symbol = "BTCUSDT"
-order_qty = 2000 / 25000  # Пример на $2000 с ценой $25K (можешь поправить вручную)
+order_qty = 2000 / 25000  # Примерно 0.08 BTC при цене 25k
 order_type = "Market"
 category = "linear"
 
-@app.route('/', methods=['POST'])
+@app.route("/", methods=["POST"])
 def webhook():
-    data = request.json
-    print("🔔 Получен сигнал:", data)
+    try:
+        data = request.get_json(force=True)
+        logger.info(f"Получен сигнал: {data}")
 
-    action = data.get("action")
+        if not data or "action" not in data:
+            logger.warning("Нет параметра 'action' в JSON")
+            return jsonify({"error": "Missing 'action' parameter"}), 400
 
-    if action == "long":
-        place_order("Buy")
-    elif action == "short":
-        place_order("Sell")
-    else:
-        print("⚠️ Неизвестное действие:", action)
+        action = data["action"].lower()
 
-    return 'ok'
+        if action == "long":
+            place_order("Buy")
+        elif action == "short":
+            place_order("Sell")
+        else:
+            logger.warning(f"Неизвестное действие: {action}")
+            return jsonify({"error": f"Unknown action '{action}'"}), 400
+
+        return jsonify({"status": "ok"}), 200
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке webhook: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
 
 def place_order(side):
-    print(f"📤 Отправка ордера: {side}")
+    logger.info(f"Отправка ордера: {side}")
     try:
         response = session.place_order(
             category=category,
@@ -48,9 +62,15 @@ def place_order(side):
             time_in_force="GoodTillCancel",
             reduce_only=False
         )
-        print("✅ Ордер отправлен:", response)
+        logger.info(f"Ответ Bybit API: {response}")
+
+        if response.get("retCode") != 0:
+            logger.error(f"Ошибка в ответе Bybit: {response.get('retMsg')}")
+
     except Exception as e:
-        print("❌ Ошибка при отправке ордера:", e)
+        logger.error(f"Исключение при отправке ордера: {e}", exc_info=True)
+
 
 if __name__ == "__main__":
+    # Запуск сервера Flask на 0.0.0.0:80, без debug (подойдет для Render)
     app.run(host="0.0.0.0", port=80)
