@@ -70,6 +70,17 @@ def place_order(side):
     except Exception as e:
         logger.error(f"Исключение при отправке ордера: {e}", exc_info=True)
 
+import requests
+
+@app.route('/check_ip', methods=['GET'])
+def check_ip():
+    try:
+        ip = requests.get('https://api.ipify.org').text
+        logger.info(f"Внешний IP сервера: {ip}")
+        return jsonify({"external_ip": ip})
+    except Exception as e:
+        logger.error(f"Ошибка при получении IP: {e}", exc_info=True)
+        return jsonify({"error": "Не удалось получить внешний IP"}), 500
 
 if __name__ == "__main__":
     # Запуск сервера Flask на 0.0.0.0:80, без debug (подойдет для Render)
